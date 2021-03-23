@@ -33,7 +33,7 @@
       <string>Run the algorithm.</string>
      </property>
      <property name="text">
-      <string>Apply</string>
+      <string>Create Plane1</string>
      </property>
     </widget>
    </item>
@@ -53,7 +53,7 @@
       <bool>false</bool>
      </property>
      <property name="text">
-      <string>Apply</string>
+      <string>Create Plane2</string>
      </property>
     </widget>
    </item>
@@ -70,7 +70,7 @@
       <bool>false</bool>
      </property>
      <property name="text">
-      <string>Apply</string>
+      <string>Create Plane3</string>
      </property>
     </widget>
    </item>

@@ -206,9 +206,9 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
       markupsNode.GetNthFiducialPosition(2, self.p3)
       # Get plane axis directions
       self.n1 = np.cross(self.p2 - self.p1, self.p2 - self.p3)  # plane normal direction
-      print("Plane1 equation: ")
-      print("{n0}(x - {x}) + {n1}(y - {y}) + {n2}(z - {z}) = 0".format(n0=self.n1[0], n1=self.n1[1], n2=self.n1[2], x=self.p2[0], y=self.p2[1], z=self.p2[2]))
+      print("Plane1 equation: {n0}(x - {x}) + {n1}(y - {y}) + {n2}(z - {z}) = 0".format(n0=self.n1[0], n1=self.n1[1], n2=self.n1[2], x=self.p2[0], y=self.p2[1], z=self.p2[2]))
       self.n1 = self.n1 / np.linalg.norm(self.n1)
+      print("normal vector of plane1: ", self.n1)
       t = np.cross([0, 0, 1], self.n1)  # plane transverse direction
       t = t / np.linalg.norm(t)
       # Set slice plane orientation and position
@@ -239,10 +239,9 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
       d = np.dot(v, self.n1)
       self.p5 = self.p4 - d*self.n1
       self.n2 = np.cross(self.p4 - self.p1, self.p4 - self.p5)  # plane normal direction
-      print("Plane2 equation: ")
-      print("{n0}(x - {x}) + {n1}(y - {y}) + {n2}(z - {z}) = 0".format(n0=self.n2[0], n1=self.n2[1], n2=self.n2[2], x=self.p4[0], y=self.p4[1], z=self.p4[2]))
+      print("Plane2 equation: {n0}(x - {x}) + {n1}(y - {y}) + {n2}(z - {z}) = 0".format(n0=self.n2[0], n1=self.n2[1], n2=self.n2[2], x=self.p4[0], y=self.p4[1], z=self.p4[2]))
       self.n2 = self.n2 / np.linalg.norm(self.n2)
-      print("normal vector: ", self.n2)
+      print("normal vector of plane2: ", self.n2)
       t2 = np.cross(self.n1, self.n2)  # plane transverse direction
       t2 = t2 / np.linalg.norm(t2)
       # Set slice plane orientation and position
@@ -270,10 +269,9 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
       self.p6 = 10 * self.n1 + self.p5
       self.p7 = 10 * self.n2 + self.p5
       self.n3 = np.cross(self.p5 - self.p6, self.p5 - self.p7)  # plane normal direction
-      print("Plane3 equation: ")
-      print("{n0}(x - {x}) + {n1}(y - {y}) + {n2}(z - {z}) = 0".format(n0=self.n3[0], n1=self.n3[1], n2=self.n3[2], x=self.p5[0], y=self.p5[1], z=self.p5[2]))
+      print("Plane3 equation: {n0}(x - {x}) + {n1}(y - {y}) + {n2}(z - {z}) = 0".format(n0=self.n3[0], n1=self.n3[1], n2=self.n3[2], x=self.p5[0], y=self.p5[1], z=self.p5[2]))
       self.n3 = self.n3 / np.linalg.norm(self.n3)
-      print("normal vector: ", self.n3)
+      print("normal vector of plane3: ", self.n3)
       t3 = np.cross(self.n1, self.n3)  # plane transverse direction
       t3 = t3 / np.linalg.norm(t3)
       # Set slice plane orientation and position
