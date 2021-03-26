@@ -6,6 +6,7 @@ from slicer.ScriptedLoadableModule import *
 from slicer.util import VTKObservationMixin
 import numpy as np
 import vtkSlicerMarkupsModuleMRMLPython
+import math
 
 #
 # fiducialPlane2slicer
@@ -66,15 +67,6 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     # "setMRMLScene(vtkMRMLScene*)" slot.
     uiWidget.setMRMLScene(slicer.mrmlScene)
 
-    self.sliceSelectorSetup()
-    self.fiducialSelectorSetup()
-    # Connections
-    self.sliceNameCollector = ["red", "yellow"]
-
-    self.ui.pushButtonPlane1.connect('clicked(bool)', self.onPushButtonPlane1)
-    self.ui.pushButtonPlane2.connect('clicked(bool)', self.onPushButtonPlane2)
-    self.ui.pushButtonPlane3.connect('clicked(bool)', self.onPushButtonPlane3)
-
     #points
     self.p1 = np.array([0.0, 0.0, 0.0])
     self.p2 = np.array([0.0, 0.0, 0.0])
@@ -89,100 +81,50 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     self.n2 = np.array([0.0, 0.0, 0.0])
     self.n3 = np.array([0.0, 0.0, 0.0])
 
+    self.markupsNode = None
+    self.fpoints = {}
+    self.pointsComboBoxies = [self.ui.point1ComboBox, self.ui.point2ComboBox, self.ui.point3ComboBox, self.ui.point4ComboBox,
+                         self.ui.point5ComboBox]
+    for pcb in self.pointsComboBoxies:
+      pcb.addItem("")
+    self.sliceSelectorSetup()
+    self.fiducials = []
+    self.fiducialPoints = {}
+    self.fiducialSelectorSetup()
+    self.fillpointComboBoxies()
+
+    # Connections
+    self.sliceNameCollector = ["red", "yellow"]
+    self.buttonPlane2Pushed = False
+    self.ui.pushButtonPlane1.connect('clicked(bool)', self.onPushButtonPlane1)
+    self.ui.pushButtonPlane2.connect('clicked(bool)', self.onPushButtonPlane2)
+    self.ui.pushButtonPlane3.connect('clicked(bool)', self.onPushButtonPlane3)
+    self.ui.point1ComboBox.connect('currentIndexChanged(QString)', self.onPoints123Changed)
+    self.ui.point2ComboBox.connect('currentIndexChanged(QString)', self.onPoints123Changed)
+    self.ui.point3ComboBox.connect('currentIndexChanged(QString)', self.onPoints123Changed)
+    self.ui.point4ComboBox.connect('currentIndexChanged(QString)', self.onPoints123Changed)
+    self.ui.point5ComboBox.connect('currentIndexChanged(QString)', self.onPoints123Changed)
+
+    slicer.mrmlScene.AddObserver(slicer.mrmlScene.NodeAddedEvent, self.modifyfiducialSelector)
+    slicer.mrmlScene.AddObserver(slicer.mrmlScene.NodeRemovedEvent, self.modifyfiducialSelector)
+
+
+  def onMarkupPointPositionDefined(caller, event, p):
+    markupsNode = caller
+    movingMarkupIndex = markupsNode.GetDisplayNode().GetActiveControlPoint()
+    logging.info(f"Markup point added: point ID = {movingMarkupIndex}")
+
+  def onMarkupPointPositionUndefined(caller, event, p):
+    markupsNode = caller
+    logging.info(f"Markup point removed.")
+
+
   def cleanup(self):
     """
     Called when the application closes and the module widget is destroyed.
     """
     self.removeObservers()
 
-  def setParameterNode(self, inputParameterNode):
-    """
-    Adds observers to the selected parameter node. Observation is needed because when the
-    parameter node is changed then the GUI must be updated immediately.
-    """
-
-    if inputParameterNode:
-      self.logic.setDefaultParameters(inputParameterNode)
-
-    # Set parameter node in the parameter node selector widget
-    wasBlocked = self.ui.parameterNodeSelector.blockSignals(True)
-    self.ui.parameterNodeSelector.setCurrentNode(inputParameterNode)
-    self.ui.parameterNodeSelector.blockSignals(wasBlocked)
-
-    if inputParameterNode == self._parameterNode:
-      # No change
-      return
-
-    # Unobserve previusly selected parameter node and add an observer to the newly selected.
-    # Changes of parameter node are observed so that whenever parameters are changed by a script or any other module
-    # those are reflected immediately in the GUI.
-    if self._parameterNode is not None:
-      self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self.updateGUIFromParameterNode)
-    if inputParameterNode is not None:
-      self.addObserver(inputParameterNode, vtk.vtkCommand.ModifiedEvent, self.updateGUIFromParameterNode)
-    self._parameterNode = inputParameterNode
-
-    # Initial GUI update
-    self.updateGUIFromParameterNode()
-
-  def updateGUIFromParameterNode(self, caller=None, event=None):
-    """
-    This method is called whenever parameter node is changed.
-    The module GUI is updated to show the current state of the parameter node.
-    """
-
-    # Disable all sections if no parameter node is selected
-    self.ui.basicCollapsibleButton.enabled = self._parameterNode is not None
-    self.ui.advancedCollapsibleButton.enabled = self._parameterNode is not None
-    if self._parameterNode is None:
-      return
-
-    # Update each widget from parameter node
-    # Need to temporarily block signals to prevent infinite recursion (MRML node update triggers
-    # GUI update, which triggers MRML node update, which triggers GUI update, ...)
-
-    wasBlocked = self.ui.inputSelector.blockSignals(True)
-    self.ui.inputSelector.setCurrentNode(self._parameterNode.GetNodeReference("InputVolume"))
-    self.ui.inputSelector.blockSignals(wasBlocked)
-
-    wasBlocked = self.ui.outputSelector.blockSignals(True)
-    self.ui.outputSelector.setCurrentNode(self._parameterNode.GetNodeReference("OutputVolume"))
-    self.ui.outputSelector.blockSignals(wasBlocked)
-
-    wasBlocked = self.invertedOutputSelector.blockSignals(True)
-    self.invertedOutputSelector.setCurrentNode(self._parameterNode.GetNodeReference("OutputVolumeInverse"))
-    self.invertedOutputSelector.blockSignals(wasBlocked)
-
-    wasBlocked = self.ui.imageThresholdSliderWidget.blockSignals(True)
-    self.ui.imageThresholdSliderWidget.value = float(self._parameterNode.GetParameter("Threshold"))
-    self.ui.imageThresholdSliderWidget.blockSignals(wasBlocked)
-
-    wasBlocked = self.ui.invertOutputCheckBox.blockSignals(True)
-    self.ui.invertOutputCheckBox.checked = (self._parameterNode.GetParameter("Invert") == "true")
-    self.ui.invertOutputCheckBox.blockSignals(wasBlocked)
-
-    # Update buttons states and tooltips
-    if self._parameterNode.GetNodeReference("InputVolume") and self._parameterNode.GetNodeReference("OutputVolume"):
-      self.ui.applyButton.toolTip = "Compute output volume"
-      self.ui.applyButton.enabled = True
-    else:
-      self.ui.applyButton.toolTip = "Select input and output volume nodes"
-      self.ui.applyButton.enabled = False
-
-  def updateParameterNodeFromGUI(self, caller=None, event=None):
-    """
-    This method is called when the user makes any change in the GUI.
-    The changes are saved into the parameter node (so that they are restored when the scene is saved and loaded).
-    """
-
-    if self._parameterNode is None:
-      return
-
-    self._parameterNode.SetNodeReferenceID("InputVolume", self.ui.inputSelector.currentNodeID)
-    self._parameterNode.SetNodeReferenceID("OutputVolume", self.ui.outputSelector.currentNodeID)
-    self._parameterNode.SetParameter("Threshold", str(self.ui.imageThresholdSliderWidget.value))
-    self._parameterNode.SetParameter("Invert", "true" if self.ui.invertOutputCheckBox.checked else "false")
-    self._parameterNode.SetNodeReferenceID("OutputVolumeInverse", self.invertedOutputSelector.currentNodeID)
 
   def onPushButtonPlane1(self):
     """
@@ -195,30 +137,56 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
       sliceNodeName = self.slicesDict[name]
       # print("sliceNode: ", sliceNodeName)
       sliceNode = slicer.mrmlScene.GetNodeByID(sliceNodeName)
-      fiducialname = self.ui.fiducialSelectorComboBox.currentText
-      # markupsNode = slicer.mrmlScene.GetFirstNodeByName(fiducialname)
-      # print(fiducialname)
-      markupsNode = slicer.util.getNode(fiducialname)
-      # print(markupsNode)
-      # Get markup point positions as numpy arrays
-      markupsNode.GetNthFiducialPosition(0, self.p1)
-      markupsNode.GetNthFiducialPosition(1, self.p2)
-      markupsNode.GetNthFiducialPosition(2, self.p3)
+      fvalues = list(self.fpoints.values())
+      fkeys = list(self.fpoints.keys())
+
+      box = self.pointsComboBoxies[0].currentText
+      if not box:
+        slicer.util.errorDisplay("Point 1 has not been set!")
+        return 0
+      index = fkeys[fvalues.index(box)]
+      self.markupsNode.GetNthFiducialPosition(index, self.p1)
+
+      box = self.pointsComboBoxies[1].currentText
+      if not box:
+        slicer.util.errorDisplay("Point 1 has not been set!")
+        return 0
+      index = fkeys[fvalues.index(box)]
+      self.markupsNode.GetNthFiducialPosition(index, self.p2)
+
+      box = self.pointsComboBoxies[2].currentText
+      if not box:
+        slicer.util.errorDisplay("Point 1 has not been set!")
+        return 0
+      index = fkeys[fvalues.index(box)]
+      self.markupsNode.GetNthFiducialPosition(index, self.p3)
+
+      dist = np.linalg.norm(self.p1 - self.p2)
+      if np.isclose(dist, 0):
+        slicer.util.errorDisplay("The Point1 and Point2 is too close to each other (Two point may be same)!")
+        return 0
+      dist = np.linalg.norm(self.p2 - self.p3)
+      if np.isclose(dist, 0):
+        slicer.util.errorDisplay("The Point2 and Point3 is too close to each other (Two point may be same)!")
+        return 0
+
       # Get plane axis directions
       self.n1 = np.cross(self.p2 - self.p1, self.p2 - self.p3)  # plane normal direction
       print("Plane1 equation: {n0}(x - {x}) + {n1}(y - {y}) + {n2}(z - {z}) = 0".format(n0=self.n1[0], n1=self.n1[1], n2=self.n1[2], x=self.p2[0], y=self.p2[1], z=self.p2[2]))
       self.n1 = self.n1 / np.linalg.norm(self.n1)
       print("normal vector of plane1: ", self.n1)
-      t = np.cross([0, 0, 1], self.n1)  # plane transverse direction
+      t = np.cross([0, 1, 0], self.n1)  # plane transverse direction
       t = t / np.linalg.norm(t)
       # Set slice plane orientation and position
       sliceNode.SetSliceToRASByNTP(self.n1[0], self.n1[1], self.n1[2], t[0], t[1], t[2], self.p1[0], self.p1[1], self.p1[2], 0)
       self.ui.pushButtonPlane2.enabled = True
+      self.buttonPlane2Pushed = True
     except Exception as e:
       slicer.util.errorDisplay("Please set 3 fiducal on object!")
       slicer.util.errorDisplay("Failed to compute results: "+str(e))
       import traceback
       traceback.print_exc()
+
 
 
   def onPushButtonPlane2(self):
@@ -230,19 +198,49 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
       sliceNodeName = self.slicesDict[name]
       self.sliceNameCollector[1] = name
       sliceNode = slicer.mrmlScene.GetNodeByID(sliceNodeName)
-      fiducialname = self.ui.fiducialSelectorComboBox.currentText
-      markupsNode = slicer.util.getNode(fiducialname)
-      markupsNode.GetNthFiducialPosition(3, self.p4)
+
+      fvalues = list(self.fpoints.values())
+      fkeys = list(self.fpoints.keys())
+      box = self.pointsComboBoxies[3].currentText
+      if not box:
+        slicer.util.errorDisplay("Point 1 has not been set!")
+        return 0
+      index = fkeys[fvalues.index(box)]
+      self.markupsNode.GetNthFiducialPosition(index, self.p4)
+
+      box = self.pointsComboBoxies[4].currentText
+      if not box:
+        slicer.util.errorDisplay("Point 1 has not been set!")
+        return 0
+      index = fkeys[fvalues.index(box)]
+      self.markupsNode.GetNthFiducialPosition(index, self.p5)
+
+      dist = np.linalg.norm(self.p4 - self.p5)
+      if np.isclose(dist, 0):
+        slicer.util.errorDisplay("The Point4 and Point5 is too close to each other (Two point may be same)!")
+        return 0
+
+      #Calculate p5 projection on plane
+      v = self.p5 - self.p2
+      d = np.dot(v, self.n1)
+      print("The distance of the fifth point from the plane: ", d)
+      if np.isclose(d, 0):
+        slicer.util.errorDisplay("The fifth point is too close to plane (The point may be on the plane)!")
+        return 0
 
       #Calculate p4 projection on plane
       v = self.p4 - self.p2
       d = np.dot(v, self.n1)
-      self.p5 = self.p4 - d*self.n1
-      self.n2 = np.cross(self.p4 - self.p1, self.p4 - self.p5)  # plane normal direction
+      print("The distance of the fourth point from the plane: ", d)
+      if np.isclose(d, 0):
+        slicer.util.errorDisplay("The fourth point is too close to plane (The point may be on the plane)!")
+        return 0
+      self.p6 = self.p4 - d*self.n1
+      self.n2 = np.cross(self.p4 - self.p5, self.p4 - self.p6)  # plane normal direction
       print("Plane2 equation: {n0}(x - {x}) + {n1}(y - {y}) + {n2}(z - {z}) = 0".format(n0=self.n2[0], n1=self.n2[1], n2=self.n2[2], x=self.p4[0], y=self.p4[1], z=self.p4[2]))
       self.n2 = self.n2 / np.linalg.norm(self.n2)
       print("normal vector of plane2: ", self.n2)
-      t2 = np.cross(self.n1, self.n2)  # plane transverse direction
+      t2 = np.cross(-self.n1, self.n2)  # plane transverse direction
       t2 = t2 / np.linalg.norm(t2)
       # Set slice plane orientation and position
       sliceNode.SetSliceToRASByNTP(self.n2[0], self.n2[1], self.n2[2], t2[0], t2[1], t2[2], self.p1[0], self.p1[1], self.p1[2], 0)
@@ -266,13 +264,13 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
 
       sliceNode = slicer.mrmlScene.GetNodeByID(sliceNodeName)
 
-      self.p6 = 10 * self.n1 + self.p5
-      self.p7 = 10 * self.n2 + self.p5
-      self.n3 = np.cross(self.p5 - self.p6, self.p5 - self.p7)  # plane normal direction
+      self.p7 = 10 * self.n1 + self.p6
+      self.p8 = 10 * self.n2 + self.p6
+      self.n3 = np.cross(self.p6 - self.p7, self.p6 - self.p8)  # plane normal direction
       print("Plane3 equation: {n0}(x - {x}) + {n1}(y - {y}) + {n2}(z - {z}) = 0".format(n0=self.n3[0], n1=self.n3[1], n2=self.n3[2], x=self.p5[0], y=self.p5[1], z=self.p5[2]))
       self.n3 = self.n3 / np.linalg.norm(self.n3)
       print("normal vector of plane3: ", self.n3)
-      t3 = np.cross(self.n1, self.n3)  # plane transverse direction
+      t3 = np.cross(-self.n1, self.n3)  # plane transverse direction
       t3 = t3 / np.linalg.norm(t3)
       # Set slice plane orientation and position
       sliceNode.SetSliceToRASByNTP(self.n3[0], self.n3[1], self.n3[2], t3[0], t3[1], t3[2], self.p6[0], self.p6[1], self.p6[2], 0)
@@ -285,7 +283,6 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
 
 
   def sliceSelectorSetup(self):
-
     keys = ["Red Slice", "Yellow Slice", "Green Slice"]
     # print(keys)
     for key in self.slicesDict.keys():
@@ -294,11 +291,112 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     self.ui.sliceSelectorComboBox.setCurrentText(keys[0])
     self.ui.sliceSelector2ComboBox.setCurrentText(keys[1])
 
+
   def fiducialSelectorSetup(self):
     for node in list(slicer.mrmlScene.GetNodes()):
       if isinstance(node, vtkSlicerMarkupsModuleMRMLPython.vtkMRMLMarkupsFiducialNode):
-        self.ui.fiducialSelectorComboBox.addItem(node.GetName())
+        name = node.GetName()
+        if name not in self.fiducials:
+          self.ui.fiducialSelectorComboBox.addItem(name)
+          self.fiducials.append(name)
+    self.pushButtonPlaneActivator()
+    self.setMarkupsNode()
 
+
+  def fillpointComboBoxies(self):
+    values = list(self.fpoints.values())
+    # print("values:", values)
+    n = min(len(values),5)
+    for i in range(n):
+      # print(values[i])
+      self.pointsComboBoxies[i].setCurrentText(values[i])
+
+  def modifyfiducialSelector(self, caller, event):
+    fiducials = []
+    for node in list(slicer.mrmlScene.GetNodes()):
+      if isinstance(node, vtkSlicerMarkupsModuleMRMLPython.vtkMRMLMarkupsFiducialNode):
+        name = node.GetName()
+        fiducials.append(name)
+    diff = list(set(fiducials) - set(self.fiducials))
+    # print(diff)
+    for fiducial in diff:
+      self.ui.fiducialSelectorComboBox.addItem(fiducial)
+      self.fiducials.append(fiducial)
+    diff = list(set(self.fiducials) - set(fiducials))
+    # print(diff)
+    for fiducial in diff:
+      index = self.ui.fiducialSelectorComboBox.findText(fiducial)
+      self.ui.fiducialSelectorComboBox.removeItem(index)
+      self.fiducials.remove(fiducial)
+    self.pushButtonPlaneActivator()
+    self.setMarkupsNode()
+
+
+  def pushButtonPlaneActivator(self):
+    if len(self.fiducials):
+      self.ui.pushButtonPlane1.enabled = True
+    else:
+      self.ui.pushButtonPlane1.enabled = False
+      self.ui.pushButtonPlane2.enabled = False
+      self.ui.pushButtonPlane3.enabled = False
+
+
+  def setMarkupsNode(self):
+    fiducialname = self.ui.fiducialSelectorComboBox.currentText
+    if fiducialname:
+      self.markupsNode = slicer.util.getNode(fiducialname)
+      self.markupsNode.AddObserver(self.markupsNode.PointPositionDefinedEvent, self.modifiedFiducialPoints)
+      self.markupsNode.AddObserver(self.markupsNode.PointPositionUndefinedEvent, self.modifiedFiducialPoints)
+      self.modifiedFiducialPoints()
+
+
+  def modifiedFiducialPoints(self, caller=None, event=None):
+    if self.markupsNode:
+      n = self.markupsNode.GetNumberOfMarkups()
+      fpoints = {}
+      # print(n)
+      for i in range(n):
+        label = self.markupsNode.GetNthControlPointLabel(i)
+        fpoints[i] = self.markupsNode.GetNthControlPointLabel(i)
+
+      values = list(fpoints.values())
+      svalues = list(self.fpoints.values())
+      diff = list(set(svalues) - set(values))
+      # print(diff)
+
+      for value in diff:
+        for i in range(len(self.pointsComboBoxies)):
+          current = self.pointsComboBoxies[i].currentText
+          index = self.pointsComboBoxies[i].findText(value)
+          self.pointsComboBoxies[i].removeItem(index)
+          if current == value:
+            self.pointsComboBoxies[i].setCurrentText('')
+            if i < 3:
+              self.ui.pushButtonPlane1.enabled = False
+              self.ui.pushButtonPlane2.enabled = False
+              self.ui.pushButtonPlane3.enabled = False
+            elif i < 5:
+              self.ui.pushButtonPlane2.enabled = False
+              self.ui.pushButtonPlane3.enabled = False
+        self.fpoints.pop(list(self.fpoints.keys())[list(self.fpoints.values()).index(value)])
+      diff = list(set(values) - set(svalues))
+      # print(diff)
+      for value in diff:
+        for pcb in self.pointsComboBoxies:
+          pcb.addItem(value)
+      self.fpoints = fpoints
+
+  def onPoints123Changed(self):
+    if self.pointsComboBoxies[0].currentText and self.pointsComboBoxies[1].currentText and self.pointsComboBoxies[2].currentText:
+      self.ui.pushButtonPlane1.enabled = True
+      if self.pointsComboBoxies[3].currentText and self.pointsComboBoxies[4].currentText and self.buttonPlane2Pushed:
+        self.ui.pushButtonPlane2.enabled = True
+      else:
+        self.ui.pushButtonPlane2.enabled = False
+    else:
+      self.ui.pushButtonPlane1.enabled = False
+      self.ui.pushButtonPlane2.enabled = False
+      self.buttonPlane2Pushed = False
 
 
 # fiducialPlane2slicerLogic
