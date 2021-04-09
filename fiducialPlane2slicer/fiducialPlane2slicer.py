@@ -82,6 +82,9 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     self.n3 = np.array([0.0, 0.0, 0.0])
 
     self.markupsNode = None
+    self.activeFiducialNode = None
+    self.fiducialNodeObserver = None
+
     self.fpoints = {}
     self.pointsComboBoxies = [self.ui.point1ComboBox, self.ui.point2ComboBox, self.ui.point3ComboBox, self.ui.point4ComboBox,
                          self.ui.point5ComboBox]
@@ -89,7 +92,6 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
       pcb.addItem("")
     self.sliceSelectorSetup()
     self.fiducials = []
-    self.fiducialPoints = {}
     self.fiducialSelectorSetup()
     self.fillpointComboBoxies()
 
@@ -107,6 +109,7 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
 
     slicer.mrmlScene.AddObserver(slicer.mrmlScene.NodeAddedEvent, self.modifyfiducialSelector)
     slicer.mrmlScene.AddObserver(slicer.mrmlScene.NodeRemovedEvent, self.modifyfiducialSelector)
+
 
 
   def onMarkupPointPositionDefined(caller, event, p):
@@ -137,29 +140,10 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
       sliceNodeName = self.slicesDict[name]
       # print("sliceNode: ", sliceNodeName)
       sliceNode = slicer.mrmlScene.GetNodeByID(sliceNodeName)
-      fvalues = list(self.fpoints.values())
-      fkeys = list(self.fpoints.keys())
 
-      box = self.pointsComboBoxies[0].currentText
-      if not box:
-        slicer.util.errorDisplay("Point 1 has not been set!")
-        return 0
-      index = fkeys[fvalues.index(box)]
-      self.markupsNode.GetNthFiducialPosition(index, self.p1)
-
-      box = self.pointsComboBoxies[1].currentText
-      if not box:
-        slicer.util.errorDisplay("Point 1 has not been set!")
-        return 0
-      index = fkeys[fvalues.index(box)]
-      self.markupsNode.GetNthFiducialPosition(index, self.p2)
-
-      box = self.pointsComboBoxies[2].currentText
-      if not box:
-        slicer.util.errorDisplay("Point 1 has not been set!")
-        return 0
-      index = fkeys[fvalues.index(box)]
-      self.markupsNode.GetNthFiducialPosition(index, self.p3)
+      self.getPointCoordinatesFromComboBox(0, self.p1)
+      self.getPointCoordinatesFromComboBox(1, self.p2)
+      self.getPointCoordinatesFromComboBox(2, self.p3)
 
       dist = np.linalg.norm(self.p1 - self.p2)
       if np.isclose(dist, 0):
@@ -199,21 +183,8 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
       self.sliceNameCollector[1] = name
       sliceNode = slicer.mrmlScene.GetNodeByID(sliceNodeName)
 
-      fvalues = list(self.fpoints.values())
-      fkeys = list(self.fpoints.keys())
-      box = self.pointsComboBoxies[3].currentText
-      if not box:
-        slicer.util.errorDisplay("Point 1 has not been set!")
-        return 0
-      index = fkeys[fvalues.index(box)]
-      self.markupsNode.GetNthFiducialPosition(index, self.p4)
-
-      box = self.pointsComboBoxies[4].currentText
-      if not box:
-        slicer.util.errorDisplay("Point 1 has not been set!")
-        return 0
-      index = fkeys[fvalues.index(box)]
-      self.markupsNode.GetNthFiducialPosition(index, self.p5)
+      self.getPointCoordinatesFromComboBox(3, self.p4)
+      self.getPointCoordinatesFromComboBox(4, self.p5)
 
       dist = np.linalg.norm(self.p4 - self.p5)
       if np.isclose(dist, 0):
@@ -281,6 +252,17 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
       import traceback
       traceback.print_exc()
 
+  def getPointCoordinatesFromComboBox(self, order, point):
+    fvalues = list(self.fpoints.values())
+    fkeys = list(self.fpoints.keys())
+
+    box = self.pointsComboBoxies[order].currentText
+    if not box:
+      slicer.util.errorDisplay("Point {} has not been set!".format(order + 1))
+      return 0
+    id = fkeys[fvalues.index(box)]
+    index = self.markupsNode.GetNthControlPointIndexByID(id)
+    self.markupsNode.GetNthFiducialPosition(index, point)
 
   def sliceSelectorSetup(self):
     keys = ["Red Slice", "Yellow Slice", "Green Slice"]
@@ -299,17 +281,62 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
         if name not in self.fiducials:
           self.ui.fiducialSelectorComboBox.addItem(name)
           self.fiducials.append(name)
+    self.setactiveFiducialNode()
     self.pushButtonPlaneActivator()
     self.setMarkupsNode()
 
 
+  def setactiveFiducialNode(self):
+    self.removeFiducialPointChangeEvent()
+    if self.ui.fiducialSelectorComboBox.currentText:
+      self.activeFiducialNode = slicer.util.getNode(self.ui.fiducialSelectorComboBox.currentText)
+      self.fiducialNodeObserver = self.activeFiducialNode.AddObserver(self.activeFiducialNode.PointModifiedEvent, self.onMarkupModified)
+    else:
+      self.removeFiducialPointChangeEvent()
+
+
+
+  def removeFiducialPointChangeEvent(self):
+    if self.activeFiducialNode:
+      if self.fiducialNodeObserver:
+        self.activeFiducialNode.RemoveObserver(self.fiducialNodeObserver)
+      self.activeFiducialNode = None
+
+  def getMarkupsPoints(self):
+    fpoints = {}
+    if self.markupsNode:
+      n = self.markupsNode.GetNumberOfMarkups()
+      # print(n)
+      for i in range(n):
+        label = self.markupsNode.GetNthControlPointLabel(i)
+        id = self.markupsNode.GetNthControlPointID(i)
+        fpoints[id] = "{}:{}".format(id, label)
+    return fpoints
+
+  def onMarkupModified(self, caller, event):
+    print("Markups changed")
+    fpoints = self.getMarkupsPoints()
+    if len(fpoints) != self.fpoints:
+      self.modifiedFiducialPoints()
+    for key in fpoints.keys():
+      if fpoints[key] != self.fpoints[key]:
+        for pointsComboBox in self.pointsComboBoxies:
+          active = str(pointsComboBox.currentText).split(":")[0]
+          index = pointsComboBox.findText(self.fpoints[key])
+          pointsComboBox.removeItem(index)
+          pointsComboBox.addItem(fpoints[key])
+          if active == key:
+            pointsComboBox.setCurrentText(fpoints[key])
+    self.fpoints = fpoints
+
   def fillpointComboBoxies(self):
     values = list(self.fpoints.values())
     # print("values:", values)
-    n = min(len(values),5)
+    n = min(len(values), 5)
     for i in range(n):
       # print(values[i])
       self.pointsComboBoxies[i].setCurrentText(values[i])
+
 
   def modifyfiducialSelector(self, caller, event):
     fiducials = []
@@ -330,6 +357,7 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
       self.fiducials.remove(fiducial)
     self.pushButtonPlaneActivator()
     self.setMarkupsNode()
+    self.setactiveFiducialNode()
 
 
   def pushButtonPlaneActivator(self):
@@ -351,40 +379,34 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
 
 
   def modifiedFiducialPoints(self, caller=None, event=None):
-    if self.markupsNode:
-      n = self.markupsNode.GetNumberOfMarkups()
-      fpoints = {}
-      # print(n)
-      for i in range(n):
-        label = self.markupsNode.GetNthControlPointLabel(i)
-        fpoints[i] = self.markupsNode.GetNthControlPointLabel(i)
+    print("Modification detected")
+    fpoints = self.getMarkupsPoints()
 
-      values = list(fpoints.values())
-      svalues = list(self.fpoints.values())
-      diff = list(set(svalues) - set(values))
-      # print(diff)
-
-      for value in diff:
-        for i in range(len(self.pointsComboBoxies)):
-          current = self.pointsComboBoxies[i].currentText
-          index = self.pointsComboBoxies[i].findText(value)
-          self.pointsComboBoxies[i].removeItem(index)
-          if current == value:
-            self.pointsComboBoxies[i].setCurrentText('')
-            if i < 3:
-              self.ui.pushButtonPlane1.enabled = False
-              self.ui.pushButtonPlane2.enabled = False
-              self.ui.pushButtonPlane3.enabled = False
-            elif i < 5:
-              self.ui.pushButtonPlane2.enabled = False
-              self.ui.pushButtonPlane3.enabled = False
-        self.fpoints.pop(list(self.fpoints.keys())[list(self.fpoints.values()).index(value)])
-      diff = list(set(values) - set(svalues))
-      # print(diff)
-      for value in diff:
-        for pcb in self.pointsComboBoxies:
-          pcb.addItem(value)
-      self.fpoints = fpoints
+    values = list(fpoints.values())
+    svalues = list(self.fpoints.values())
+    diff = list(set(svalues) - set(values))
+    # print(diff)
+    for value in diff:
+      for i in range(len(self.pointsComboBoxies)):
+        current = self.pointsComboBoxies[i].currentText
+        index = self.pointsComboBoxies[i].findText(value)
+        self.pointsComboBoxies[i].removeItem(index)
+        if current == value:
+          self.pointsComboBoxies[i].setCurrentText('')
+          if i < 3:
+            self.ui.pushButtonPlane1.enabled = False
+            self.ui.pushButtonPlane2.enabled = False
+            self.ui.pushButtonPlane3.enabled = False
+          elif i < 5:
+            self.ui.pushButtonPlane2.enabled = False
+            self.ui.pushButtonPlane3.enabled = False
+      self.fpoints.pop(list(self.fpoints.keys())[list(self.fpoints.values()).index(value)])
+    diff = list(set(values) - set(svalues))
+    # print(diff)
+    for value in diff:
+      for pcb in self.pointsComboBoxies:
+        pcb.addItem(value)
+    self.fpoints = fpoints
 
   def onPoints123Changed(self):
     if self.pointsComboBoxies[0].currentText and self.pointsComboBoxies[1].currentText and self.pointsComboBoxies[2].currentText:
