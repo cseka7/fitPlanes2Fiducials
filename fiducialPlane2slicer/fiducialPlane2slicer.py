@@ -22,7 +22,7 @@ class fiducialPlane2slicer(ScriptedLoadableModule):
     self.parent.title = "fiducialPlane2slicer"  # TODO: make this more human readable by adding spaces
     self.parent.categories = ["Examples"]  # TODO: set categories (folders where the module shows up in the module selector)
     self.parent.dependencies = []  # TODO: add here list of module names that this module requires
-    self.parent.contributors = ["John Doe (AnyWare Corp.)"]  # TODO: replace with "Firstname Lastname (Organization)"
+    self.parent.contributors = ["Adam Csoka (Medicopus Nonprofit Ltd.)"]  # TODO: replace with "Firstname Lastname (Organization)"
     self.parent.helpText = """
 This is an example of scripted loadable module bundled in an extension.
 """  # TODO: update with short description of the module
@@ -50,6 +50,7 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     self.logic = None
     self._parameterNode = None
     self.slicesDict = {"Red Slice": "vtkMRMLSliceNodeRed", "Yellow Slice": "vtkMRMLSliceNodeYellow", "Green Slice": "vtkMRMLSliceNodeGreen"}
+
 
   def setup(self):
     """
@@ -101,6 +102,7 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     self.ui.pushButtonPlane1.connect('clicked(bool)', self.onPushButtonPlane1)
     self.ui.pushButtonPlane2.connect('clicked(bool)', self.onPushButtonPlane2)
     self.ui.pushButtonPlane3.connect('clicked(bool)', self.onPushButtonPlane3)
+    self.ui.fiducialSelectorComboBox.connect('currentIndexChanged(QString)', self.onFiducialChanged)
     self.ui.point1ComboBox.connect('currentIndexChanged(QString)', self.onPoints123Changed)
     self.ui.point2ComboBox.connect('currentIndexChanged(QString)', self.onPoints123Changed)
     self.ui.point3ComboBox.connect('currentIndexChanged(QString)', self.onPoints123Changed)
@@ -109,7 +111,7 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
 
     slicer.mrmlScene.AddObserver(slicer.mrmlScene.NodeAddedEvent, self.modifyfiducialSelector)
     slicer.mrmlScene.AddObserver(slicer.mrmlScene.NodeRemovedEvent, self.modifyfiducialSelector)
-
+    self.onPoints123Changed()
 
 
   def onMarkupPointPositionDefined(caller, event, p):
@@ -136,9 +138,7 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     try:
       name = self.ui.sliceSelectorComboBox.currentText
       self.sliceNameCollector[0] = name
-      # print("name: ", name)
       sliceNodeName = self.slicesDict[name]
-      # print("sliceNode: ", sliceNodeName)
       sliceNode = slicer.mrmlScene.GetNodeByID(sliceNodeName)
 
       self.getPointCoordinatesFromComboBox(0, self.p1)
@@ -163,8 +163,8 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
       t = t / np.linalg.norm(t)
       # Set slice plane orientation and position
       sliceNode.SetSliceToRASByNTP(self.n1[0], self.n1[1], self.n1[2], t[0], t[1], t[2], self.p1[0], self.p1[1], self.p1[2], 0)
-      self.ui.pushButtonPlane2.enabled = True
       self.buttonPlane2Pushed = True
+      self.onPoints123Changed()
     except Exception as e:
       slicer.util.errorDisplay("Please set 3 fiducal on object!")
       slicer.util.errorDisplay("Failed to compute results: "+str(e))
@@ -266,7 +266,6 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
 
   def sliceSelectorSetup(self):
     keys = ["Red Slice", "Yellow Slice", "Green Slice"]
-    # print(keys)
     for key in self.slicesDict.keys():
       self.ui.sliceSelectorComboBox.addItem(key)
       self.ui.sliceSelector2ComboBox.addItem(key)
@@ -282,18 +281,16 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
           self.ui.fiducialSelectorComboBox.addItem(name)
           self.fiducials.append(name)
     self.setactiveFiducialNode()
-    self.pushButtonPlaneActivator()
-    self.setMarkupsNode()
+    # self.pushButtonPlaneActivator()
 
 
   def setactiveFiducialNode(self):
     self.removeFiducialPointChangeEvent()
     if self.ui.fiducialSelectorComboBox.currentText:
       self.activeFiducialNode = slicer.util.getNode(self.ui.fiducialSelectorComboBox.currentText)
-      self.fiducialNodeObserver = self.activeFiducialNode.AddObserver(self.activeFiducialNode.PointModifiedEvent, self.onMarkupModified)
+      self.fiducialNodeObserver = self.activeFiducialNode.AddObserver(self.activeFiducialNode.PointModifiedEvent, self.modifiedFiducialPoints)
     else:
       self.removeFiducialPointChangeEvent()
-
 
 
   def removeFiducialPointChangeEvent(self):
@@ -304,9 +301,9 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
 
   def getMarkupsPoints(self):
     fpoints = {}
+    self.markupsNode = slicer.util.getNode(self.ui.fiducialSelectorComboBox.currentText)
     if self.markupsNode:
       n = self.markupsNode.GetNumberOfMarkups()
-      # print(n)
       for i in range(n):
         label = self.markupsNode.GetNthControlPointLabel(i)
         id = self.markupsNode.GetNthControlPointID(i)
@@ -314,7 +311,6 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     return fpoints
 
   def onMarkupModified(self, caller, event):
-    print("Markups changed")
     fpoints = self.getMarkupsPoints()
     if len(fpoints) != self.fpoints:
       self.modifiedFiducialPoints()
@@ -331,10 +327,8 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
 
   def fillpointComboBoxies(self):
     values = list(self.fpoints.values())
-    # print("values:", values)
     n = min(len(values), 5)
     for i in range(n):
-      # print(values[i])
       self.pointsComboBoxies[i].setCurrentText(values[i])
 
 
@@ -345,68 +339,42 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
         name = node.GetName()
         fiducials.append(name)
     diff = list(set(fiducials) - set(self.fiducials))
-    # print(diff)
     for fiducial in diff:
       self.ui.fiducialSelectorComboBox.addItem(fiducial)
       self.fiducials.append(fiducial)
+
     diff = list(set(self.fiducials) - set(fiducials))
-    # print(diff)
     for fiducial in diff:
       index = self.ui.fiducialSelectorComboBox.findText(fiducial)
       self.ui.fiducialSelectorComboBox.removeItem(index)
       self.fiducials.remove(fiducial)
-    self.pushButtonPlaneActivator()
-    self.setMarkupsNode()
     self.setactiveFiducialNode()
 
 
-  def pushButtonPlaneActivator(self):
-    if len(self.fiducials):
-      self.ui.pushButtonPlane1.enabled = True
-    else:
-      self.ui.pushButtonPlane1.enabled = False
-      self.ui.pushButtonPlane2.enabled = False
-      self.ui.pushButtonPlane3.enabled = False
-
-
-  def setMarkupsNode(self):
-    fiducialname = self.ui.fiducialSelectorComboBox.currentText
-    if fiducialname:
-      self.markupsNode = slicer.util.getNode(fiducialname)
-      self.markupsNode.AddObserver(self.markupsNode.PointPositionDefinedEvent, self.modifiedFiducialPoints)
-      self.markupsNode.AddObserver(self.markupsNode.PointPositionUndefinedEvent, self.modifiedFiducialPoints)
-      self.modifiedFiducialPoints()
-
-
   def modifiedFiducialPoints(self, caller=None, event=None):
-    print("Modification detected")
     fpoints = self.getMarkupsPoints()
-
-    values = list(fpoints.values())
-    svalues = list(self.fpoints.values())
-    diff = list(set(svalues) - set(values))
-    # print(diff)
-    for value in diff:
-      for i in range(len(self.pointsComboBoxies)):
-        current = self.pointsComboBoxies[i].currentText
-        index = self.pointsComboBoxies[i].findText(value)
-        self.pointsComboBoxies[i].removeItem(index)
-        if current == value:
-          self.pointsComboBoxies[i].setCurrentText('')
-          if i < 3:
-            self.ui.pushButtonPlane1.enabled = False
-            self.ui.pushButtonPlane2.enabled = False
-            self.ui.pushButtonPlane3.enabled = False
-          elif i < 5:
-            self.ui.pushButtonPlane2.enabled = False
-            self.ui.pushButtonPlane3.enabled = False
-      self.fpoints.pop(list(self.fpoints.keys())[list(self.fpoints.values()).index(value)])
-    diff = list(set(values) - set(svalues))
-    # print(diff)
-    for value in diff:
-      for pcb in self.pointsComboBoxies:
-        pcb.addItem(value)
+    for fkey in fpoints.keys():
+      if fkey not in self.fpoints.keys():
+        for pointsComboBox in self.pointsComboBoxies:
+          pointsComboBox.addItem(fpoints[fkey])
+      elif fpoints[fkey] != self.fpoints[fkey]:
+        for pointsComboBox in self.pointsComboBoxies:
+          active = str(pointsComboBox.currentText).split(":")[0]
+          index = pointsComboBox.findText(self.fpoints[fkey])
+          pointsComboBox.removeItem(index)
+          pointsComboBox.addItem(fpoints[fkey])
+          if active == fkey:
+            pointsComboBox.currentText = fpoints[fkey]
+    for fkey in self.fpoints.keys():
+      if fkey not in fpoints.keys():
+        for pointsComboBox in self.pointsComboBoxies:
+          active = str(pointsComboBox.currentText).split(":")[0]
+          index = pointsComboBox.findText(self.fpoints[fkey])
+          pointsComboBox.removeItem(index)
+          if active == fkey:
+            pointsComboBox.currentText = ""
     self.fpoints = fpoints
+    self.onPoints123Changed()
 
   def onPoints123Changed(self):
     if self.pointsComboBoxies[0].currentText and self.pointsComboBoxies[1].currentText and self.pointsComboBoxies[2].currentText:
@@ -415,11 +383,37 @@ class fiducialPlane2slicerWidget(ScriptedLoadableModuleWidget, VTKObservationMix
         self.ui.pushButtonPlane2.enabled = True
       else:
         self.ui.pushButtonPlane2.enabled = False
+        self.ui.pushButtonPlane3.enabled = False
     else:
       self.ui.pushButtonPlane1.enabled = False
       self.ui.pushButtonPlane2.enabled = False
+      self.ui.pushButtonPlane3.enabled = False
       self.buttonPlane2Pushed = False
 
+  def onFiducialChanged(self):
+    self.ui.pushButtonPlane1.enabled = False
+    self.ui.pushButtonPlane2.enabled = False
+    self.ui.pushButtonPlane3.enabled = False
+    self.buttonPlane2Pushed = False
+    self.removeFiducialPoints()
+    self.modifiedFiducialPoints()
+    self.setactiveFiducialNode()
+    self.setcurrentText4ComboBoxies()
+
+
+  def removeFiducialPoints(self):
+    for fpoint in self.fpoints.values():
+      for pointsComboBox in self.pointsComboBoxies:
+        index = pointsComboBox.findText(fpoint)
+        pointsComboBox.removeItem(index)
+    self.fpoints = {}
+
+  def setcurrentText4ComboBoxies(self):
+    for i, j in zip(range(len(self.fpoints)), self.fpoints.keys()) :
+      if i < 5:
+        self.pointsComboBoxies[i].currentText = self.fpoints[j]
+      else:
+        break
 
 # fiducialPlane2slicerLogic
 #
